@@ -65,3 +65,5 @@ def load_chat_model(
 
     # Use standard langchain initialization for other providers
     return init_chat_model(model, model_provider=provider)
+
+llm = load_chat_model("qwen:qwen-flash")

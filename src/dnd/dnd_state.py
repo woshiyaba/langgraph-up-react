@@ -1,21 +1,26 @@
-from typing import TypedDict, List, Dict, Optional, Annotated
+from dataclasses import field, dataclass
+from typing import TypedDict, List, Dict, Optional, Annotated, Sequence
+
+from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
 
 # 1. 物品结构
-class Item(TypedDict):
+@dataclass
+class Item:
     name: str
     description: str
     type: str # "quest_item", "weapon", "consumable"
     effect_id: Optional[str] # 关联到具体的代码逻辑或伏笔标记
 
 # 2. 技能结构
-class Skill(TypedDict):
+@dataclass
+class Skill:
     name: str
     class_requirement: str # 职业限制，例如 "Mage"
     level_requirement: int
     damage_formula: str # 例如 "2d6 + int_mod"
-
-class Player(TypedDict):
+@dataclass
+class Player:
         # --- 角色数据 (RPG核心) ---
     player_name: str
     player_class: str # Warrior, Mage, Rogue
@@ -38,8 +43,11 @@ class Player(TypedDict):
     phase: str # 当前阶段
 
 # 3. 全局状态 (传入所有节点的上下文)
-class GameState(TypedDict):
+@dataclass
+class GameState:
     # --- 基础聊天 ---
-    messages: Annotated[List, add_messages] # 聊天历史
-    players: Dict[str, Player] # 玩家列表
-    current_user_id: str # 当前用户ID
+    messages: Annotated[Sequence[AnyMessage], add_messages] = field(
+        default_factory=list
+    )
+    players: Dict[str, Player] = field(default_factory=dict) # 玩家列表
+    current_user_id: str = "" # 当前用户ID

@@ -18,6 +18,9 @@ intent_route = """
 {
   "action": "<one of the types above>"
 }
+### 注意：
+- 不要在任何时候修改状态！
+- 你只允许分析用户最后一句话的意向，不生成任何故事
 
 ### Examples:
 User: "我想搜索一下这间屋子有没有暗门"

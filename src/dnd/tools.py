@@ -70,3 +70,18 @@ class DiceTools:
     def damage_roll(damage_dice: str) -> Dict[str, Any]:
         """伤害骰"""
         return DiceTools.roll_dice(damage_dice)
+
+# -----------------------
+# 1. 掷骰工具
+# -----------------------
+@tool
+def roll_dice(dice: str) -> int:
+    """
+    掷骰工具，例如 "1d20"、"2d6"
+    return: 掷出的总点数
+    """
+    import random
+    num, sides = dice.lower().split("d")
+    num = int(num)
+    sides = int(sides)
+    return sum(random.randint(1, sides) for _ in range(num))

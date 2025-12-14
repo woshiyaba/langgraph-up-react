@@ -85,3 +85,4 @@ def roll_dice(dice: str) -> int:
     num = int(num)
     sides = int(sides)
     return sum(random.randint(1, sides) for _ in range(num))
+

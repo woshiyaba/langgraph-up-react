@@ -10,6 +10,7 @@ from src.common import Context
 from src.common.utils import load_chat_model
 from src.dnd import prompt
 from src.dnd.dnd_state import GameState
+from src.dnd.tools import story_create
 
 
 class IntentRouteResult(BaseModel):
@@ -22,7 +23,7 @@ class IntentRouteResult(BaseModel):
         "attack",
         "cast_spell",
         "start_combat",
-        "store",
+        "story",
     ]
 
 
@@ -99,14 +100,4 @@ async def intent_route_node(state: GameState, runtime: Runtime[Context]):
     return {"messages": [clean_message]}
 
 
-async def store_engine_node(state: GameState, runtime: Runtime[Context]):
-    llm = load_chat_model(runtime.context.model)
-    response = cast(
-        AIMessage,
-        await llm.ainvoke(
-            [{"role": "system", "content": prompt.store_engine}, *state.messages]
-        ),
-    )
 
-    print("store_engine_node", response.content)
-    return {"messages": [response]}

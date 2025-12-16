@@ -10,7 +10,6 @@ from src.common import Context
 from src.common.utils import load_chat_model
 from src.dnd import prompt
 from src.dnd.dnd_state import GameState
-from src.dnd.tools import story_create
 
 
 class IntentRouteResult(BaseModel):
@@ -34,7 +33,7 @@ _VALID_ACTIONS = {
     "attack",
     "cast_spell",
     "start_combat",
-    "store",
+    "story",
 }
 
 
@@ -60,17 +59,17 @@ def _extract_action_from_text(text: str) -> str:
         "skill_check",
         "talk",
         "explore",
-        "store",
+        "story",
     ]:
         if act in lowered:
             return act
 
     # 3. 实在解析不到就当作闲聊
-    return "store"
+    return "story"
 
 
 async def intent_route_node(state: GameState, runtime: Runtime[Context]):
-    """意图路由节点：只输出 action，不生成故事。"""
+    """意图路由节点：只输出 action，不生成故事."""
     llm = load_chat_model(runtime.context.model)
     print("intent_route_node param", *state.messages)
 

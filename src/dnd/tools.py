@@ -9,10 +9,7 @@ class DiceTools:
     @staticmethod
     @tool
     def roll_dice(dice_expression: str) -> Dict[str, Any]:
-        """
-        解析骰子表达式并投掷
-        支持格式：1d20, 2d6+3, d100等
-        """
+        """解析骰子表达式并投掷支持格式：1d20, 2d6+3, d100等."""
         import re
 
         # 解析骰子表达式

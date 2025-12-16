@@ -1,8 +1,10 @@
-from dataclasses import field, dataclass
-from typing import TypedDict, List, Dict, Optional, Annotated, Sequence
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Annotated, Dict, List, Optional, Sequence, TypedDict
 
 from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
+
 
 # 1. 物品结构
 @dataclass
@@ -19,6 +21,36 @@ class Skill:
     class_requirement: str # 职业限制，例如 "Mage"
     level_requirement: int
     damage_formula: str # 例如 "2d6 + int_mod"
+
+# 3. 战斗角色阵营
+class Faction(str, Enum):
+    ALLY = "ally"      # 队友
+    ENEMY = "enemy"    # 敌人
+
+# 4. 战斗角色（统一队友和敌人）
+@dataclass
+class Combatant:
+    """战斗参与者，可以是玩家、队友或敌人"""
+    id: str                          # 唯一标识
+    name: str                        # 显示名称
+    faction: Faction                 # 阵营：ally/enemy
+    hp: int                          # 当前生命值
+    max_hp: int                      # 最大生命值
+    ac: int                          # 护甲等级
+    stats: Dict[str, int]            # 属性 {"STR": 10, "DEX": 14, "CON": 12...}
+    damage_dice: str                 # 伤害骰，如 "1d8+2"
+    description: Optional[str] = None  # 角色描述
+
+    @property
+    def dexterity(self) -> int:
+        """获取敏捷值，用于先攻排序"""
+        return self.stats.get("DEX", 10)
+    
+    @property
+    def is_alive(self) -> bool:
+        """是否存活"""
+        return self.hp > 0
+
 @dataclass
 class Player:
         # --- 角色数据 (RPG核心) ---
@@ -42,7 +74,7 @@ class Player:
     enemy_state: Optional[Dict] # 当前敌人的数据
     phase: str # 当前阶段
 
-# 3. 全局状态 (传入所有节点的上下文)
+# 5. 全局状态 (传入所有节点的上下文)
 @dataclass
 class GameState:
     # --- 基础聊天 ---
@@ -51,3 +83,9 @@ class GameState:
     )
     players: Dict[str, Player] = field(default_factory=dict) # 玩家列表
     current_user_id: str = "" # 当前用户ID
+    
+    # --- 战斗系统 ---
+    combat_order: List[Combatant] = field(default_factory=list)  # 战斗顺序列表
+    is_combat_active: bool = False  # 是否正在战斗中
+    current_round: int = 0  # 当前回合数
+    combat_log: List[str] = field(default_factory=list)  # 战斗日志

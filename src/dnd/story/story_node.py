@@ -6,10 +6,11 @@ from langgraph.runtime import Runtime
 from src.common import Context, load_chat_model
 from src.dnd import prompt
 from src.dnd.dnd_state import GameState
-from src.dnd.story.tools import story_create, get_story_tools
+from src.dnd.story.tools import get_story_tools, story_create
 
 
 async def store_engine_node(state: GameState, runtime: Runtime[Context]):
+    """存储引擎节点."""
     llm = load_chat_model(runtime.context.model).bind_tools(await get_story_tools())
 
     response = cast(

@@ -6,13 +6,14 @@ from typing import Any, Dict, List, Optional
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from src.dnd.dnd_state import Combatant, Faction
+from src.dnd.dnd_state import Combatant, ControllerType, Faction
 
 
 class ExtractedCharacter(BaseModel):
-    """从对话中提取的角色信息"""
+    """从对话中提取的角色信息."""
     name: str = Field(description="角色名称")
     faction: str = Field(description="阵营: ally 或 enemy")
+    is_player: bool = Field(default=False, description="是否为玩家控制的角色")
     hp: int = Field(default=20, description="生命值")
     max_hp: int = Field(default=20, description="最大生命值")
     ac: int = Field(default=12, description="护甲等级")
@@ -155,6 +156,7 @@ def sort_combatants_by_initiative(combatants: List[Combatant]) -> List[Combatant
 def create_combatant_from_extracted(extracted: ExtractedCharacter, index: int) -> Combatant:
     """从提取的角色信息创建 Combatant 对象"""
     faction = Faction.ALLY if extracted.faction.lower() == "ally" else Faction.ENEMY
+    controller = ControllerType.PLAYER if extracted.is_player else ControllerType.NPC
     
     return Combatant(
         id=f"{extracted.faction}_{index}_{extracted.name}",
@@ -172,7 +174,8 @@ def create_combatant_from_extracted(extracted: ExtractedCharacter, index: int) -
             "CHA": 10
         },
         damage_dice=extracted.damage_dice,
-        description=extracted.description
+        description=extracted.description,
+        controller=controller
     )
 
 

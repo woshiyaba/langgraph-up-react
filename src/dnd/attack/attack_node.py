@@ -14,8 +14,13 @@ from src.dnd.attack.attack_tools import (
     get_attack_tools,
     sort_combatants_by_initiative,
 )
-from src.dnd.dnd_state import Combatant, Faction, GameState
-
+from src.dnd.attack.prompt import COMBAT_INTENT
+from src.dnd.dnd_state import (
+    Combatant,
+    ControllerType,
+    Faction,
+    GameState,
+)
 
 # ============================================================
 # 提取角色的 Prompt
@@ -30,6 +35,9 @@ EXTRACT_CHARACTERS_PROMPT = """
 对于每个角色，请估算其属性：
 - name: 角色名称
 - faction: "ally" 或 "enemy"
+- is_player: 是否为玩家控制的角色（true/false）
+  * 玩家角色：对话中的"我"、用户扮演的角色、明确说是玩家的角色
+  * NPC：怪物、敌人、友方NPC、队友NPC等
 - hp/max_hp: 根据角色类型估算生命值 (普通人类20, 战士30-50, 怪物根据描述)
 - ac: 护甲等级 (无甲10-12, 轻甲13-15, 重甲16-18)
 - dex: 敏捷值 (普通10, 敏捷类角色14-18, 笨重类6-8)
@@ -37,6 +45,7 @@ EXTRACT_CHARACTERS_PROMPT = """
 - description: 简短描述
 
 请仔细阅读对话，找出所有明确或暗示参与战斗的角色。
+注意区分玩家控制的角色和NPC，这很重要！
 """
 
 
@@ -78,7 +87,6 @@ async def init_combat_node(state: GameState, runtime: Runtime[Context]) -> Dict[
             create_combatant_from_extracted(char, i) 
             for i, char in enumerate(result.characters)
         ]
-        
         # 按先攻排序
         sorted_combatants = sort_combatants_by_initiative(combatants)
         
@@ -101,6 +109,16 @@ async def init_combat_node(state: GameState, runtime: Runtime[Context]) -> Dict[
             "combat_log": [f"[系统] 初始化战斗失败: {str(e)}"]
         }
 
+async def combat_intent(state: GameState, runtime: Runtime[Context]) -> Dict[str, Any]:
+    """理解战斗意图，当开始战斗的时候 玩家会输入 使用xxx技能攻击xxxNcp 或者使用xx技能治疗xxxNPC."""  # noqa: D202
+    
+    llm = load_chat_model(runtime.context.model)
+    llm.invoke([
+            {"role": "system", "content": COMBAT_INTENT},
+            {"role": "user", "content": state.messages[-1].content}
+        ]
+    )
+    pass
 
 async def process_turn_node(state: GameState, runtime: Runtime[Context]) -> Dict[str, Any]:
     """处理当前角色的战斗回合：取第一个角色执行攻击判定."""
@@ -164,7 +182,8 @@ async def process_turn_node(state: GameState, runtime: Runtime[Context]) -> Dict
             ac=updated_target.ac,
             stats=updated_target.stats,
             damage_dice=updated_target.damage_dice,
-            description=updated_target.description
+            description=updated_target.description,
+            controller=updated_target.controller
         )
         
         combat_log.append(f"  {target.name} 受到 {damage_result['damage']} 点伤害! (HP: {updated_target.hp} -> {new_hp})")
@@ -282,4 +301,302 @@ def should_continue_combat(state: GameState) -> Literal["continue", "end"]:
         return "end"
     
     return "continue"
+
+
+def check_turn_type(state: GameState) -> Literal["player_turn", "npc_batch"]:
+    """判断当前是玩家回合还是NPC批量处理的路由函数."""
+    if not state.combat_order:
+        return "npc_batch"
+    
+    current_actor = state.combat_order[0]
+    if current_actor.controller == ControllerType.PLAYER and current_actor.is_alive:
+        return "player_turn"  # 玩家回合，等待输入
+    else:
+        return "npc_batch"    # NPC回合，批量处理
+
+
+async def await_player_input_node(state: GameState, runtime: Runtime[Context]) -> Dict[str, Any]:
+    """等待玩家输入节点：标记状态为等待输入，返回给前端."""
+    if not state.combat_order:
+        return {}
+    
+    current_actor = state.combat_order[0]
+    combat_log = list(state.combat_log) if state.combat_log else []
+    combat_log.append(f"\n[回合 {state.current_round}] 轮到 {current_actor.name} (玩家) 行动")
+    combat_log.append("请输入你的行动，例如: '使用普通攻击攻击哥布林' 或 '使用至圣斩攻击史莱姆'")
+    
+    return {
+        "awaiting_player_input": True,
+        "combat_log": combat_log
+    }
+
+
+async def process_player_action_node(state: GameState, runtime: Runtime[Context]) -> Dict[str, Any]:
+    """处理玩家输入的动作节点：解析玩家指令并执行."""
+    if not state.combat_order or not state.pending_player_action:
+        return {"awaiting_player_input": False, "pending_player_action": None}
+    
+    current_actor = state.combat_order[0]
+    player_input = state.pending_player_action
+    combat_log = list(state.combat_log) if state.combat_log else []
+    
+    # 解析玩家输入
+    action_info = _parse_player_action(player_input, state)
+    
+    if not action_info["valid"]:
+        combat_log.append(f"  [错误] {action_info['error']}")
+        return {
+            "combat_log": combat_log,
+            "awaiting_player_input": True,  # 继续等待有效输入
+            "pending_player_action": None
+        }
+    
+    target = action_info["target"]
+    skill_name = action_info["skill_name"]
+    damage_bonus = action_info.get("damage_bonus", 0)
+    
+    combat_log.append(f"  {current_actor.name} 使用 [{skill_name}] 攻击 {target.name}!")
+    
+    # 计算攻击加值
+    str_mod = (current_actor.stats.get("STR", 10) - 10) // 2
+    
+    # 执行攻击
+    attack_result = attack_roll.invoke({
+        "attacker_name": current_actor.name,
+        "target_name": target.name,
+        "attack_bonus": str_mod,
+        "target_ac": target.ac
+    })
+    
+    combat_log.append(f"  {attack_result['details']}")
+    
+    # 如果命中，计算伤害
+    updated_combatants = list(state.combat_order)
+    if attack_result["hit"]:
+        # 技能可以有额外伤害加成
+        base_damage_dice = current_actor.damage_dice
+        damage_result = damage_roll.invoke({
+            "damage_dice": base_damage_dice,
+            "is_critical": attack_result["is_critical"]
+        })
+        
+        total_damage = damage_result["damage"] + damage_bonus
+        combat_log.append(f"  {damage_result['details']}" + (f" +{damage_bonus}技能加成" if damage_bonus > 0 else ""))
+        
+        # 更新目标生命值
+        target_index = next(i for i, c in enumerate(updated_combatants) if c.id == target.id)
+        updated_target = updated_combatants[target_index]
+        new_hp = max(0, updated_target.hp - total_damage)
+        
+        updated_combatants[target_index] = Combatant(
+            id=updated_target.id,
+            name=updated_target.name,
+            faction=updated_target.faction,
+            hp=new_hp,
+            max_hp=updated_target.max_hp,
+            ac=updated_target.ac,
+            stats=updated_target.stats,
+            damage_dice=updated_target.damage_dice,
+            description=updated_target.description,
+            controller=updated_target.controller
+        )
+        
+        combat_log.append(f"  {target.name} 受到 {total_damage} 点伤害! (HP: {updated_target.hp} -> {new_hp})")
+        
+        if new_hp <= 0:
+            combat_log.append(f"  💀 {target.name} 被击败了!")
+    
+    return {
+        "combat_order": updated_combatants,
+        "combat_log": combat_log,
+        "awaiting_player_input": False,
+        "pending_player_action": None
+    }
+
+
+def _parse_player_action(player_input: str, state: GameState) -> Dict[str, Any]:
+    """解析玩家的动作指令.
+    
+    支持格式：
+    - "使用普通攻击攻击哥布林"
+    - "使用至圣斩攻击史莱姆"
+    - "攻击哥布林"
+    """
+    import re
+    
+    current_actor = state.combat_order[0]
+    target_faction = Faction.ALLY if current_actor.faction == Faction.ENEMY else Faction.ENEMY
+    available_targets = [c for c in state.combat_order if c.faction == target_faction and c.is_alive]
+    
+    if not available_targets:
+        return {"valid": False, "error": "没有可攻击的目标"}
+    
+    # 技能映射表（可以扩展）
+    skill_bonuses = {
+        "普通攻击": 0,
+        "至圣斩": 10,
+        "重击": 5,
+        "猛击": 3,
+        "火球术": 8,
+        "冰霜箭": 6,
+    }
+    
+    # 尝试匹配 "使用XXX攻击YYY" 格式
+    pattern1 = r"使用(.+?)攻击(.+)"
+    match1 = re.search(pattern1, player_input)
+    
+    if match1:
+        skill_name = match1.group(1).strip()
+        target_name = match1.group(2).strip()
+    else:
+        # 尝试匹配 "攻击XXX" 格式
+        pattern2 = r"攻击(.+)"
+        match2 = re.search(pattern2, player_input)
+        if match2:
+            skill_name = "普通攻击"
+            target_name = match2.group(1).strip()
+        else:
+            return {"valid": False, "error": f"无法理解指令: {player_input}。请使用格式: '使用XXX攻击YYY' 或 '攻击YYY'"}
+    
+    # 查找目标
+    target = None
+    for t in available_targets:
+        if target_name in t.name or t.name in target_name:
+            target = t
+            break
+    
+    if not target:
+        target_names = [t.name for t in available_targets]
+        return {"valid": False, "error": f"找不到目标 '{target_name}'。可用目标: {', '.join(target_names)}"}
+    
+    # 获取技能加成
+    damage_bonus = skill_bonuses.get(skill_name, 0)
+    
+    return {
+        "valid": True,
+        "skill_name": skill_name,
+        "target": target,
+        "damage_bonus": damage_bonus
+    }
+
+
+async def process_npc_batch_node(state: GameState, runtime: Runtime[Context]) -> Dict[str, Any]:
+    """批量处理所有NPC回合，直到轮到玩家或战斗结束."""
+    if not state.combat_order:
+        return {"is_combat_active": False}
+    
+    combat_log = list(state.combat_log) if state.combat_log else []
+    updated_combatants = list(state.combat_order)
+    current_round = state.current_round
+    
+    # 循环处理NPC回合
+    max_iterations = 100  # 防止无限循环
+    iterations = 0
+    
+    while iterations < max_iterations:
+        iterations += 1
+        
+        # 检查战斗是否结束
+        allies = [c for c in updated_combatants if c.faction == Faction.ALLY and c.is_alive]
+        enemies = [c for c in updated_combatants if c.faction == Faction.ENEMY and c.is_alive]
+        
+        if not allies:
+            combat_log.append("\n[系统] ===== 战斗失败...所有队友倒下 =====")
+            return {
+                "combat_order": updated_combatants,
+                "is_combat_active": False,
+                "combat_log": combat_log,
+                "current_round": current_round
+            }
+        
+        if not enemies:
+            combat_log.append("\n[系统] ===== 战斗胜利！所有敌人被击败 =====")
+            return {
+                "combat_order": updated_combatants,
+                "is_combat_active": False,
+                "combat_log": combat_log,
+                "current_round": current_round
+            }
+        
+        # 过滤掉死亡的角色
+        updated_combatants = [c for c in updated_combatants if c.is_alive]
+        
+        if not updated_combatants:
+            break
+        
+        current_actor = updated_combatants[0]
+        
+        # 如果当前是玩家，停止批量处理
+        if current_actor.controller == ControllerType.PLAYER:
+            break
+        
+        # 处理NPC回合
+        combat_log.append(f"\n[回合 {current_round}] {current_actor.name} (NPC) 的回合")
+        
+        # 获取可攻击的目标
+        target_faction = Faction.ALLY if current_actor.faction == Faction.ENEMY else Faction.ENEMY
+        available_targets = [c for c in updated_combatants if c.faction == target_faction and c.is_alive]
+        
+        if not available_targets:
+            combat_log.append(f"  {current_actor.name} 没有可攻击的目标")
+        else:
+            # 选择目标（简单策略：攻击第一个可用目标）
+            target = available_targets[0]
+            
+            # 计算攻击加值
+            str_mod = (current_actor.stats.get("STR", 10) - 10) // 2
+            
+            # 执行攻击
+            attack_result = attack_roll.invoke({
+                "attacker_name": current_actor.name,
+                "target_name": target.name,
+                "attack_bonus": str_mod,
+                "target_ac": target.ac
+            })
+            
+            combat_log.append(f"  {attack_result['details']}")
+            
+            # 如果命中，计算伤害
+            if attack_result["hit"]:
+                damage_result = damage_roll.invoke({
+                    "damage_dice": current_actor.damage_dice,
+                    "is_critical": attack_result["is_critical"]
+                })
+                
+                combat_log.append(f"  {damage_result['details']}")
+                
+                # 更新目标生命值
+                target_index = next(i for i, c in enumerate(updated_combatants) if c.id == target.id)
+                updated_target = updated_combatants[target_index]
+                new_hp = max(0, updated_target.hp - damage_result["damage"])
+                
+                updated_combatants[target_index] = Combatant(
+                    id=updated_target.id,
+                    name=updated_target.name,
+                    faction=updated_target.faction,
+                    hp=new_hp,
+                    max_hp=updated_target.max_hp,
+                    ac=updated_target.ac,
+                    stats=updated_target.stats,
+                    damage_dice=updated_target.damage_dice,
+                    description=updated_target.description,
+                    controller=updated_target.controller
+                )
+                
+                combat_log.append(f"  {target.name} 受到 {damage_result['damage']} 点伤害! (HP: {updated_target.hp} -> {new_hp})")
+                
+                if new_hp <= 0:
+                    combat_log.append(f"  💀 {target.name} 被击败了!")
+        
+        # 轮转：将当前角色移到队列尾部
+        if len(updated_combatants) >= 2:
+            updated_combatants = updated_combatants[1:] + [updated_combatants[0]]
+            combat_log.append(f"  -> 下一位: {updated_combatants[0].name}")
+    
+    return {
+        "combat_order": updated_combatants,
+        "combat_log": combat_log,
+        "current_round": current_round,
+        "awaiting_player_input": False
+    }
 

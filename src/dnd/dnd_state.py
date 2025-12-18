@@ -27,6 +27,11 @@ class Faction(str, Enum):
     ALLY = "ally"      # 队友
     ENEMY = "enemy"    # 敌人
 
+# 3.1 控制类型（玩家/NPC）
+class ControllerType(str, Enum):
+    PLAYER = "player"  # 玩家控制，需要等待输入
+    NPC = "npc"        # AI控制，自动处理
+
 # 4. 战斗角色（统一队友和敌人）
 @dataclass
 class Combatant:
@@ -40,6 +45,7 @@ class Combatant:
     stats: Dict[str, int]            # 属性 {"STR": 10, "DEX": 14, "CON": 12...}
     damage_dice: str                 # 伤害骰，如 "1d8+2"
     description: Optional[str] = None  # 角色描述
+    controller: ControllerType = ControllerType.NPC  # 控制类型：玩家/NPC
 
     @property
     def dexterity(self) -> int:
@@ -89,3 +95,5 @@ class GameState:
     is_combat_active: bool = False  # 是否正在战斗中
     current_round: int = 0  # 当前回合数
     combat_log: List[str] = field(default_factory=list)  # 战斗日志
+    awaiting_player_input: bool = False  # 是否等待玩家输入
+    pending_player_action: Optional[str] = None  # 玩家待处理的动作指令

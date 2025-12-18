@@ -57,9 +57,9 @@ def build_attack_graph() -> StateGraph:
     # 添加节点
     # ============================================================
     workflow.add_node("init_combat", init_combat_node)
-    workflow.add_node("process_turn", process_turn_node)
-    workflow.add_node("check_death", check_death_node)
-    workflow.add_node("rotate_turn", rotate_turn_node)
+    # workflow.add_node("process_turn", process_turn_node)
+    # workflow.add_node("check_death", check_death_node)
+    # workflow.add_node("rotate_turn", rotate_turn_node)
     
     # ============================================================
     # 设置入口
@@ -71,23 +71,23 @@ def build_attack_graph() -> StateGraph:
     # ============================================================
     
     # init_combat -> process_turn
-    workflow.add_edge("init_combat", "process_turn")
+    # workflow.add_edge("init_combat", "process_turn")
     
     # process_turn -> check_death
-    workflow.add_edge("process_turn", "check_death")
+    # workflow.add_edge("process_turn", "check_death")
     
     # check_death -> 条件路由 (continue/end)
-    workflow.add_conditional_edges(
-        "check_death",
-        should_continue_combat,
-        {
-            "continue": "rotate_turn",
-            "end": END
-        }
-    )
+    # workflow.add_conditional_edges(
+        # "check_death",
+        # should_continue_combat,
+        # {
+            # "continue": "rotate_turn",
+            # "end": END
+        # }
+    # )
     
     # rotate_turn -> process_turn (循环)
-    workflow.add_edge("rotate_turn", "process_turn")
+    # workflow.add_edge("rotate_turn", "process_turn")
     
     return workflow
 

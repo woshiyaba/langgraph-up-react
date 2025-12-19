@@ -4,6 +4,7 @@ from typing import Annotated, Dict, List, Optional, Sequence, TypedDict
 
 from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
+from pydantic import BaseModel
 
 
 # 1. 物品结构
@@ -80,6 +81,15 @@ class Player:
     enemy_state: Optional[Dict] # 当前敌人的数据
     phase: str # 当前阶段
 
+    
+"""攻击者 被攻击者 和技能."""
+class CombatCommand(BaseModel):
+    # 攻击者
+    attacker: Optional[str] = None
+    # 被攻击者
+    defender: Optional[str] = None
+    # 技能
+    skill: Optional[str] = None
 # 5. 全局状态 (传入所有节点的上下文)
 @dataclass
 class GameState:
@@ -97,3 +107,5 @@ class GameState:
     combat_log: List[str] = field(default_factory=list)  # 战斗日志
     awaiting_player_input: bool = False  # 是否等待玩家输入
     pending_player_action: Optional[str] = None  # 玩家待处理的动作指令
+    combat_command: Optional[CombatCommand] = None  # 战斗命令
+    npc_action_text: Optional[str] = None  # NPC生成的行动指令文本

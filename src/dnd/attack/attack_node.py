@@ -14,9 +14,10 @@ from src.dnd.attack.attack_tools import (
     get_attack_tools,
     sort_combatants_by_initiative,
 )
-from src.dnd.attack.prompt import COMBAT_INTENT
+from src.dnd.attack.prompt import COMBAT_INTENT, NPC_SKILL_PROMPT
 from src.dnd.dnd_state import (
     Combatant,
+    CombatCommand,
     ControllerType,
     Faction,
     GameState,
@@ -103,35 +104,40 @@ async def init_combat_node(state: GameState, runtime: Runtime[Context]) -> Dict[
             "current_round": 1,
             "combat_log": combat_log
         }
-        
     except Exception as e:
         return {
             "combat_log": [f"[系统] 初始化战斗失败: {str(e)}"]
         }
 
 async def combat_intent(state: GameState, runtime: Runtime[Context]) -> Dict[str, Any]:
-    """理解战斗意图，当开始战斗的时候 玩家会输入 使用xxx技能攻击xxxNcp 或者使用xx技能治疗xxxNPC."""  # noqa: D202
-    
+    """理解战斗意图，解析玩家输入或NPC生成的行动指令."""
     llm = load_chat_model(runtime.context.model)
-    llm.invoke([
+    structured_llm = llm.with_structured_output(CombatCommand)
+    
+    # 优先使用 NPC 生成的行动指令，否则使用玩家输入
+    if state.npc_action_text:
+        action_text = state.npc_action_text
+    else:
+        action_text = state.messages[-1].content if state.messages else ""
+    
+    res = await structured_llm.ainvoke([
             {"role": "system", "content": COMBAT_INTENT},
-            {"role": "user", "content": state.messages[-1].content}
+            {"role": "user", "content": action_text}
         ]
     )
-    pass
+    return {
+        "combat_command": res,
+        "npc_action_text": None  # 清空 NPC 行动指令
+    }
 
-async def process_turn_node(state: GameState, runtime: Runtime[Context]) -> Dict[str, Any]:
-    """处理当前角色的战斗回合：取第一个角色执行攻击判定."""
+
+async def npc_skill_node(state: GameState, runtime: Runtime[Context]) -> Dict[str, Any]:
+    """NPC技能选择节点：使用LLM为当前NPC选择最优行动."""
     if not state.combat_order:
-        return {
-            "combat_log": ["[系统] 战斗列表为空，无法处理回合"],
-            "is_combat_active": False
-        }
+        return {"npc_action_text": None}
     
-    # 获取当前行动者
     current_actor = state.combat_order[0]
     combat_log = list(state.combat_log) if state.combat_log else []
-    combat_log.append(f"\n[回合 {state.current_round}] {current_actor.name} 的回合")
     
     # 获取可攻击的目标（敌对阵营的存活角色）
     target_faction = Faction.ALLY if current_actor.faction == Faction.ENEMY else Faction.ENEMY
@@ -139,17 +145,112 @@ async def process_turn_node(state: GameState, runtime: Runtime[Context]) -> Dict
     
     if not available_targets:
         combat_log.append(f"  {current_actor.name} 没有可攻击的目标")
-        return {"combat_log": combat_log}
+        return {
+            "npc_action_text": None,
+            "combat_log": combat_log
+        }
     
-    # 选择目标（简单策略：攻击第一个可用目标）
-    target = available_targets[0]
+    # 构建战斗上下文
+    combat_context = _build_combat_summary(state)
+    
+    # 构建目标信息
+    targets_info = "\n".join([
+        f"- {t.name} (HP: {t.hp}/{t.max_hp}, AC: {t.ac})"
+        for t in available_targets
+    ])
+    
+    # NPC可用技能（简化：基于角色类型）
+    available_skills = _get_npc_skills(current_actor)
+    
+    # 构建提示词
+    prompt_text = NPC_SKILL_PROMPT.format(
+        combat_context=combat_context,
+        actor_name=current_actor.name,
+        actor_faction="敌人" if current_actor.faction == Faction.ENEMY else "队友",
+        actor_hp=current_actor.hp,
+        actor_max_hp=current_actor.max_hp,
+        available_skills=", ".join(available_skills),
+        targets_info=targets_info
+    )
+    
+    # 调用 LLM 生成行动指令
+    llm = load_chat_model(runtime.context.model)
+    response = await llm.ainvoke([
+        {"role": "system", "content": prompt_text}
+    ])
+    
+    npc_action = response.content.strip()
+    combat_log.append(f"\n[回合 {state.current_round}] {current_actor.name} (NPC) 的回合")
+    combat_log.append(f"  [AI决策] {npc_action}")
+    
+    return {
+        "npc_action_text": npc_action,
+        "combat_log": combat_log
+    }
+
+
+def _get_npc_skills(combatant: Combatant) -> list[str]:
+    """根据NPC类型返回可用技能列表."""
+    # 简化实现：根据名称关键词匹配技能
+    name_lower = combatant.name.lower()
+    
+    # 基础技能
+    skills = ["普通攻击"]
+    
+    # 根据角色类型添加特殊技能
+    if "哥布林" in name_lower or "goblin" in name_lower:
+        skills.extend(["利爪", "偷袭"])
+    elif "骷髅" in name_lower or "skeleton" in name_lower:
+        skills.extend(["骨剑", "死亡凝视"])
+    elif "狼" in name_lower or "wolf" in name_lower:
+        skills.extend(["撕咬", "扑击"])
+    elif "兽人" in name_lower or "orc" in name_lower:
+        skills.extend(["重击", "狂暴"])
+    elif "法师" in name_lower or "mage" in name_lower:
+        skills.extend(["火球术", "冰霜箭"])
+    else:
+        skills.extend(["猛击", "冲锋"])
+    
+    return skills
+
+async def process_turn_node(state: GameState, runtime: Runtime[Context]) -> Dict[str, Any]:
+    """处理当前角色的战斗回合：根据combat_command执行攻击判定."""
+    if not state.combat_order:
+        return {
+            "combat_log": ["[系统] 战斗列表为空，无法处理回合"],
+            "is_combat_active": False
+        }
+    
+    combat_log = list(state.combat_log) if state.combat_log else []
+    updated_combatants = list(state.combat_order)
+    
+    # 从 combat_command 获取攻击信息
+    cmd = state.combat_command
+    if not cmd or not cmd.attacker or not cmd.defender:
+        combat_log.append("[系统] 无法解析战斗指令")
+        return {"combat_log": combat_log, "combat_command": None}
+    
+    # 查找攻击者
+    attacker = _find_combatant_by_name(updated_combatants, cmd.attacker)
+    if not attacker:
+        combat_log.append(f"[系统] 找不到攻击者: {cmd.attacker}")
+        return {"combat_log": combat_log, "combat_command": None}
+    
+    # 查找目标
+    target = _find_combatant_by_name(updated_combatants, cmd.defender)
+    if not target:
+        combat_log.append(f"[系统] 找不到目标: {cmd.defender}")
+        return {"combat_log": combat_log, "combat_command": None}
+    
+    skill_name = cmd.skill or "普通攻击"
+    combat_log.append(f"  {attacker.name} 使用 [{skill_name}] 攻击 {target.name}!")
     
     # 计算攻击加值（简化：使用力量调整值）
-    str_mod = (current_actor.stats.get("STR", 10) - 10) // 2
+    str_mod = (attacker.stats.get("STR", 10) - 10) // 2
     
     # 执行攻击
     attack_result = attack_roll.invoke({
-        "attacker_name": current_actor.name,
+        "attacker_name": attacker.name,
         "target_name": target.name,
         "attack_bonus": str_mod,
         "target_ac": target.ac
@@ -158,19 +259,22 @@ async def process_turn_node(state: GameState, runtime: Runtime[Context]) -> Dict
     combat_log.append(f"  {attack_result['details']}")
     
     # 如果命中，计算伤害
-    updated_combatants = list(state.combat_order)
     if attack_result["hit"]:
+        # 技能加成
+        damage_bonus = _get_skill_damage_bonus(skill_name)
         damage_result = damage_roll.invoke({
-            "damage_dice": current_actor.damage_dice,
+            "damage_dice": attacker.damage_dice,
             "is_critical": attack_result["is_critical"]
         })
         
-        combat_log.append(f"  {damage_result['details']}")
+        total_damage = damage_result["damage"] + damage_bonus
+        bonus_text = f" +{damage_bonus}技能加成" if damage_bonus > 0 else ""
+        combat_log.append(f"  {damage_result['details']}{bonus_text}")
         
         # 更新目标生命值
         target_index = next(i for i, c in enumerate(updated_combatants) if c.id == target.id)
         updated_target = updated_combatants[target_index]
-        new_hp = max(0, updated_target.hp - damage_result["damage"])
+        new_hp = max(0, updated_target.hp - total_damage)
         
         # 创建更新后的 Combatant
         updated_combatants[target_index] = Combatant(
@@ -186,15 +290,46 @@ async def process_turn_node(state: GameState, runtime: Runtime[Context]) -> Dict
             controller=updated_target.controller
         )
         
-        combat_log.append(f"  {target.name} 受到 {damage_result['damage']} 点伤害! (HP: {updated_target.hp} -> {new_hp})")
+        combat_log.append(f"  {target.name} 受到 {total_damage} 点伤害! (HP: {updated_target.hp} -> {new_hp})")
         
         if new_hp <= 0:
             combat_log.append(f"  💀 {target.name} 被击败了!")
     
     return {
         "combat_order": updated_combatants,
-        "combat_log": combat_log
+        "combat_log": combat_log,
+        "combat_command": None  # 清空已处理的命令
     }
+
+
+def _find_combatant_by_name(combatants: list[Combatant], name: str) -> Combatant | None:
+    """根据名称模糊匹配查找战斗者."""
+    name_lower = name.lower()
+    for c in combatants:
+        if name_lower in c.name.lower() or c.name.lower() in name_lower:
+            return c
+    return None
+
+
+def _get_skill_damage_bonus(skill_name: str) -> int:
+    """获取技能的额外伤害加成."""
+    skill_bonuses = {
+        "普通攻击": 0,
+        "至圣斩": 10,
+        "重击": 5,
+        "猛击": 3,
+        "火球术": 8,
+        "冰霜箭": 6,
+        "利爪": 2,
+        "偷袭": 6,
+        "骨剑": 3,
+        "死亡凝视": 4,
+        "撕咬": 3,
+        "扑击": 4,
+        "狂暴": 5,
+        "冲锋": 3,
+    }
+    return skill_bonuses.get(skill_name, 0)
 
 
 async def check_death_node(state: GameState, runtime: Runtime[Context]) -> Dict[str, Any]:

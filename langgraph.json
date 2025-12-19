@@ -1,7 +1,7 @@
 {
   "dependencies": ["."],
   "graphs": {
-    "agent": "./src/dnd/dnd_graph.py:app"
+    "agent": "./src/dnd/attack/attack_graph.py:attack_graph"
   },
   "env": ".env"
 }

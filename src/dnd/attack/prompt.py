@@ -71,7 +71,7 @@ NPC_SKILL_PROMPT = """
 ### 输出格式（非常重要）
 你必须严格按照以下格式输出，不要添加任何解释：
 
-{actor_name}使用{skill_name}攻击{target_name}
+{actor_name}使用{{skill_name}}攻击{{target_name}}
 
 示例：
 - 哥布林使用利爪攻击战士

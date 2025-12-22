@@ -129,7 +129,8 @@ async def combat_intent(state: GameState, runtime: Runtime[Context]) -> Dict[str
     )
     return {
         "combat_command": res,
-        "npc_action_text": None  # 清空 NPC 行动指令
+        "npc_action_text": None,  # 清空 NPC 行动指令
+        "awaiting_player_input": False  # 清除玩家输入等待标志
     }
 
 
@@ -440,13 +441,17 @@ def should_continue_combat(state: GameState) -> Literal["continue", "end"]:
     return "continue"
 
 
-def check_turn_type(state: GameState) -> Literal["player_turn", "npc_batch"]:
+def check_turn_type(state: GameState) -> Literal["player_turn", "npc_batch", "player_action_ready"]:
     """判断当前是玩家回合还是NPC批量处理的路由函数."""
     if not state.combat_order:
         return "npc_batch"
     
     current_actor = state.combat_order[0]
     if current_actor.controller == ControllerType.PLAYER and current_actor.is_alive:
+        # 如果 awaiting_player_input 为 True，说明之前已等待玩家输入
+        # 此时用户再次输入后应直接路由到 combat_intent 处理战斗逻辑
+        if state.awaiting_player_input:
+            return "player_action_ready"  # 玩家已输入，处理战斗
         return "player_turn"  # 玩家回合，等待输入
     else:
         return "npc_batch"    # NPC回合，批量处理

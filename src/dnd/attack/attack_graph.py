@@ -2,55 +2,64 @@
 战斗系统 LangGraph 图定义
 
 流程图:
-    ┌──────────────────────────────────────────────────────────────────────┐
-    │                           START                                      │
-    │                             │                                        │
-    │                             ▼                                        │
-    │                   ┌───────────────────┐                              │
-    │                   │ is_combat_active? │                              │
-    │                   └─────────┬─────────┘                              │
-    │                    false    │    true                                │
-    │                      ▼      │      ▼                                 │
-    │           ┌─────────────────┐   ┌───────────────────┐                │
-    │           │ init_combat     │   │ check_turn_type   │◄───────┐       │
-    │           └────────┬────────┘   └─────────┬─────────┘        │       │
-    │                    │              player  │   npc            │       │
-    │                    │                 ▼    │    ▼             │       │
-    │                    │    ┌───────────────┐ │ ┌─────────────┐  │       │
-    │                    │    │ await_player  │ │ │npc_skill    │  │       │
-    │                    │    │ (INTERRUPT)   │ │ │(LLM选择技能)│  │       │
-    │                    │    └───────────────┘ │ └──────┬──────┘  │       │
-    │                    │                      │        │         │       │
-    │                    │                      │        ▼         │       │
-    │                    │                      │ ┌─────────────┐  │       │
-    │                    └──────────────────────┼►│combat_intent│  │       │
-    │                                           │ └──────┬──────┘  │       │
-    │                                           │        │         │       │
-    │                                           │        ▼         │       │
-    │                                           │ ┌─────────────┐  │       │
-    │                                           │ │process_turn │  │       │
-    │                                           │ └──────┬──────┘  │       │
-    │                                           │        │         │       │
-    │                                           │        ▼         │       │
-    │                                           │ ┌─────────────┐  │       │
-    │                                           │ │ check_death │  │       │
-    │                                           │ └──────┬──────┘  │       │
-    │                                           │        │         │       │
-    │                                           │        ▼         │       │
-    │                                           │ ┌─────────────┐  │       │
-    │                                           │ │should_cont? │  │       │
-    │                                           │ └──────┬──────┘  │       │
-    │                                           │   cont │   end   │       │
-    │                                           │        ▼    ▼    │       │
-    │                                           │ ┌─────────────┐  │       │
-    │                                           │ │ rotate_turn │──┘       │
-    │                                           │ └─────────────┘          │
-    │                                           │        │                 │
-    │                                           │        ▼                 │
-    │                                           │     ┌─────┐              │
-    │                                           └────►│ END │              │
-    │                                                 └─────┘              │
-    └──────────────────────────────────────────────────────────────────────┘
+    ┌────────────────────────────────────────────────────────────────────────┐
+    │                           START                                        │
+    │                             │                                          │
+    │                             ▼                                          │
+    │                   ┌───────────────────┐                                │
+    │                   │ is_combat_active? │                                │
+    │                   └─────────┬─────────┘                                │
+    │                    false    │    true                                  │
+    │                      ▼      │      ▼                                   │
+    │           ┌─────────────────┐   ┌───────────────────┐                  │
+    │           │ init_combat     │   │ check_turn_type   │◄───────┐         │
+    │           └────────┬────────┘   └─────────┬─────────┘        │         │
+    │                    │         player_turn  │ player_action    │         │
+    │                    │              │       │ _ready   npc     │         │
+    │                    │              ▼       │    │      │      │         │
+    │                    │    ┌───────────────┐ │    │      ▼      │         │
+    │                    │    │ await_player  │ │    │ ┌─────────┐ │         │
+    │                    │    │ (INTERRUPT)   │ │    │ │npc_skill│ │         │
+    │                    │    └───────┬───────┘ │    │ └────┬────┘ │         │
+    │                    │            │         │    │      │      │         │
+    │                    │            ▼         │    ▼      ▼      │         │
+    │                    │          [END]       │ ┌─────────────┐  │         │
+    │                    │      (用户再次输入)   │ │combat_intent│◄─┘         │
+    │                    │            │         │ └──────┬──────┘            │
+    │                    │            │         │        │                   │
+    │                    │            └─────────┼────────┤                   │
+    │                    │                      │        ▼                   │
+    │                    │                      │ ┌─────────────┐            │
+    │                    └──────────────────────┼►│process_turn │            │
+    │                                           │ └──────┬──────┘            │
+    │                                           │        │                   │
+    │                                           │        ▼                   │
+    │                                           │ ┌─────────────┐            │
+    │                                           │ │ check_death │            │
+    │                                           │ └──────┬──────┘            │
+    │                                           │        │                   │
+    │                                           │        ▼                   │
+    │                                           │ ┌─────────────┐            │
+    │                                           │ │should_cont? │            │
+    │                                           │ └──────┬──────┘            │
+    │                                           │   cont │   end             │
+    │                                           │        ▼    ▼              │
+    │                                           │ ┌─────────────┐            │
+    │                                           │ │ rotate_turn │────────────┘
+    │                                           │ └─────────────┘
+    │                                           │        │
+    │                                           │        ▼
+    │                                           │     ┌─────┐
+    │                                           └────►│ END │
+    │                                                 └─────┘
+    └────────────────────────────────────────────────────────────────────────┘
+
+玩家回合流程:
+  1. check_turn_type 检测到玩家角色 + awaiting_player_input=False -> player_turn
+  2. await_player 设置 awaiting_player_input=True -> END (中断等待输入)
+  3. 用户输入后 graph 恢复，再次进入 check_turn
+  4. check_turn_type 检测到玩家角色 + awaiting_player_input=True -> player_action_ready
+  5. combat_intent 解析用户输入并清除 awaiting_player_input -> process_turn
 """  # noqa: D212, D415
 
 from typing import Literal
@@ -109,13 +118,14 @@ def build_attack_graph() -> StateGraph:
     # init_combat -> check_turn
     workflow.add_edge("init_combat", "check_turn")
 
-    # check_turn -> 条件路由 (player_turn / npc_turn)
+    # check_turn -> 条件路由 (player_turn / npc_turn / player_action_ready)
     workflow.add_conditional_edges(
         "check_turn",
         check_turn_type,
         {
             "player_turn": "await_player",
-            "npc_batch": "npc_skill"
+            "npc_batch": "npc_skill",
+            "player_action_ready": "combat_intent"  # 玩家已输入，直接处理战斗
         }
     )
 

@@ -27,26 +27,28 @@ from src.dnd.dnd_state import (
 # 提取角色的 Prompt
 # ============================================================
 EXTRACT_CHARACTERS_PROMPT = """
-你是一个DnD战斗角色提取器。请从最近的对话中提取出所有参与战斗的角色。
+你是一个DnD战斗NPC角色提取器。请从最近的对话中提取出所有参与战斗的NPC角色。
 
-请识别：
-1. 队友 (ally): 玩家角色、友方NPC
-2. 敌人 (enemy): 怪物、敌对NPC
+**重要**：只提取NPC角色，不要提取玩家角色！
+- 忽略对话中的"我"、玩家扮演的角色
+- 玩家信息会由系统自动添加
 
-对于每个角色，请估算其属性：
+请识别以下NPC类型：
+1. 敌方NPC (enemy): 怪物、敌对NPC、敌人
+2. 友方NPC (ally): 队友NPC、友方角色、同伴
+
+对于每个NPC角色，请估算其属性：
 - name: 角色名称
 - faction: "ally" 或 "enemy"
-- is_player: 是否为玩家控制的角色（true/false）
-  * 玩家角色：对话中的"我"、用户扮演的角色、明确说是玩家的角色
-  * NPC：怪物、敌人、友方NPC、队友NPC等
+- is_player: 始终为 false（因为只提取NPC）
 - hp/max_hp: 根据角色类型估算生命值 (普通人类20, 战士30-50, 怪物根据描述)
 - ac: 护甲等级 (无甲10-12, 轻甲13-15, 重甲16-18)
 - dex: 敏捷值 (普通10, 敏捷类角色14-18, 笨重类6-8)
 - damage_dice: 伤害骰 (拳头1d4, 匕首1d4, 剑1d8, 大剑2d6)
 - description: 简短描述
 
-请仔细阅读对话，找出所有明确或暗示参与战斗的角色。
-注意区分玩家控制的角色和NPC，这很重要！
+请仔细阅读对话，找出所有明确或暗示参与战斗的NPC角色。
+再次强调：不要提取玩家角色，只提取NPC！
 
 如果没有npc则模拟创建一个怪物进行战斗，方便测试
 """
@@ -143,6 +145,7 @@ async def combat_intent(state: GameState, runtime: Runtime[Context]) -> Dict[str
             {"role": "user", "content": action_text}
         ]
     )
+    print("combat_intent res", res, action_text)
     return {
         "combat_command": res,
         "npc_action_text": None,  # 清空 NPC 行动指令

@@ -1,4 +1,4 @@
-from typing import Literal, cast  # noqa: D100
+from typing import Any, Dict, Literal, cast  # noqa: D100
 import json
 import re
 
@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from src.common import Context
 from src.common.utils import load_chat_model
 from src.dnd import prompt
-from src.dnd.dnd_state import GameState
+from src.dnd.dnd_state import GameState, Player
 
 
 class IntentRouteResult(BaseModel):
@@ -99,4 +99,61 @@ async def intent_route_node(state: GameState, runtime: Runtime[Context]):
     return {"messages": [clean_message]}
 
 
+# === 默认玩家属性配置 ===
+DEFAULT_PLAYER_STATS = {
+    "Warrior": {
+        "hp": 25, "ac": 14, "damage_dice": "1d10+2",
+        "stats": {"STR": 16, "DEX": 12, "CON": 14, "INT": 8, "WIS": 10, "CHA": 10},
+    },
+    "Mage": {
+        "hp": 15, "ac": 10, "damage_dice": "1d6",
+        "stats": {"STR": 8, "DEX": 12, "CON": 10, "INT": 16, "WIS": 14, "CHA": 12},
+    },
+    "Rogue": {
+        "hp": 18, "ac": 12, "damage_dice": "1d8+3",
+        "stats": {"STR": 10, "DEX": 16, "CON": 12, "INT": 12, "WIS": 10, "CHA": 14},
+    },
+}
+
+
+async def init_player_node(
+    state: GameState, runtime: Runtime[Context]
+) -> Dict[str, Any]:
+    """初始化玩家节点：通过线程ID初始化玩家信息.
+
+    如果玩家已存在，则跳过初始化。
+    """
+    # 获取线程ID作为玩家唯一标识
+    thread_id = getattr(runtime, "thread_id", None) or "default_player"
+
+    # 检查是否已经初始化过
+    if thread_id in state.players:
+        print(f"[init_player_node] 玩家 {thread_id} 已存在，跳过初始化")
+        return {"current_user_id": thread_id}
+
+    # 使用默认职业 Warrior 的属性
+    player_class = "Warrior"
+    defaults = DEFAULT_PLAYER_STATS[player_class]
+
+    # 创建新玩家
+    player = Player(
+        id=thread_id,
+        name=f"冒险者_{thread_id[:8]}",
+        hp=defaults["hp"],
+        max_hp=defaults["hp"],
+        ac=defaults["ac"],
+        stats=defaults["stats"].copy(),
+        damage_dice=defaults["damage_dice"],
+        description="一位勇敢的冒险者，踏上了未知的旅程。",
+        player_class=player_class,
+        level=1,
+    )
+
+    print(f"[init_player_node] 初始化玩家: {player.name} (id={thread_id})")
+
+    # 返回更新后的状态
+    return {
+        "players": {thread_id: player},
+        "current_user_id": thread_id,
+    }
 

@@ -26,4 +26,4 @@ npc系统
 is_combat_active = False
 
 输入开始战斗 is_combat_active = True init => 初始化战斗列表 => 返回
-玩家开始输入 使用至圣斩攻击xxx 
+玩家开始输入 使用至圣斩攻击xxx

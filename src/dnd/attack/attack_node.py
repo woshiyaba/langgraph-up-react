@@ -90,6 +90,21 @@ async def init_combat_node(state: GameState, runtime: Runtime[Context]) -> Dict[
             create_combatant_from_extracted(char, i) 
             for i, char in enumerate(result.characters)
         ]
+        
+        # 添加当前玩家到战斗列表
+        current_player = state.players.get(state.current_user_id)
+        if current_player:
+            # 检查是否已存在同名或同ID的角色，避免重复
+            existing_ids = {c.id for c in combatants}
+            existing_names = {c.name.lower() for c in combatants}
+            
+            if current_player.id not in existing_ids and current_player.name.lower() not in existing_names:
+                player_combatant = current_player.to_combatant()
+                combatants.append(player_combatant)
+                print(f"[init_combat] 添加玩家 {current_player.name} 到战斗列表")
+            else:
+                print(f"[init_combat] 玩家 {current_player.name} 已在战斗列表中，跳过添加")
+        
         # 按先攻排序
         sorted_combatants = sort_combatants_by_initiative(combatants)
         
@@ -98,7 +113,8 @@ async def init_combat_node(state: GameState, runtime: Runtime[Context]) -> Dict[
         combat_log.append("[系统] 先攻顺序:")
         for i, c in enumerate(sorted_combatants):
             faction_str = "【队友】" if c.faction == Faction.ALLY else "【敌人】"
-            combat_log.append(f"  {i+1}. {faction_str} {c.name} (DEX: {c.dexterity}, HP: {c.hp}/{c.max_hp})")
+            ctrl_str = "🎮" if c.controller == ControllerType.PLAYER else "🤖"
+            combat_log.append(f"  {i+1}. {ctrl_str}{faction_str} {c.name} (DEX: {c.dexterity}, HP: {c.hp}/{c.max_hp})")
         
         return {
             "combat_order": sorted_combatants,

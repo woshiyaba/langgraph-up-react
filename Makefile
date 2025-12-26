@@ -83,6 +83,26 @@ dev:
 dev_ui:
 	uv run langgraph dev
 
+######################
+# RAG 索引管理
+######################
+
+# 构建 RAG 索引（首次或更新 PDF 后执行）
+rag_index:
+	uv run python -m src.rag.indexer
+
+# 强制重建 RAG 索引
+rag_index_force:
+	uv run python -m src.rag.indexer --force
+
+# 查看 RAG 索引统计信息
+rag_stats:
+	uv run python -m src.rag.indexer --stats
+
+# 交互式测试 RAG 检索
+rag_search:
+	uv run python -m src.rag.retriever
+
 
 ######################
 # LINTING AND FORMATTING
@@ -135,6 +155,12 @@ help:
 	@echo 'DEVELOPMENT:'
 	@echo 'dev                          - run langgraph dev without browser'
 	@echo 'dev_ui                       - run langgraph dev with browser'
+	@echo ''
+	@echo 'RAG (检索增强):'
+	@echo 'rag_index                    - build RAG index from DND PDF'
+	@echo 'rag_index_force              - force rebuild RAG index'
+	@echo 'rag_stats                    - show RAG index statistics'
+	@echo 'rag_search                   - interactive RAG search (debug)'
 	@echo ''
 	@echo 'TESTING:'
 	@echo 'test                         - run unit tests (default)'

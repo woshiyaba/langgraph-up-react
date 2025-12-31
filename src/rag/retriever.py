@@ -4,11 +4,19 @@
 """
 
 import logging
+import sys
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
+from langchain_chroma import Chroma
 from langchain_core.documents import Document
+
+# 支持直接运行：添加项目根目录到 Python 路径
+if __name__ == "__main__":
+    project_root = Path(__file__).parent.parent.parent.parent
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
 
 from src.rag.config import (
     CHROMA_PERSIST_DIR,
@@ -49,8 +57,7 @@ class DNDRuleRetriever:
         if self._initialized:
             return
         
-        from langchain_chroma import Chroma
-        
+
         self.persist_directory = persist_directory or CHROMA_PERSIST_DIR
         
         if not self.persist_directory.exists():

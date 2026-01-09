@@ -6,6 +6,7 @@ from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage
 from langchain_qwq import ChatQwen, ChatQwQ
+import src.rag.retriever as retriever
 
 
 def normalize_region(region: str) -> Optional[str]:
@@ -41,7 +42,7 @@ def get_message_text(msg: BaseMessage) -> str:
 
 
 def load_chat_model(
-    fully_specified_name: str,
+        fully_specified_name: str,
 ) -> Union[BaseChatModel, ChatQwQ, ChatQwen]:
     """Load a chat model from a fully specified name.
 
@@ -65,3 +66,11 @@ def load_chat_model(
 
     # Use standard langchain initialization for other providers
     return init_chat_model(model, model_provider=provider)
+
+
+def search_with_score(
+        query: str,
+        k: int = 3  # 默认返回相关条数
+) -> list[tuple[str, float]]:
+    dnd_rag = retriever.get_retriever()
+    return dnd_rag.search_with_score(query, k)

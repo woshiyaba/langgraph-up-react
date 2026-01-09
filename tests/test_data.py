@@ -1,4 +1,5 @@
 """Centralized test data and constants for the test suite."""
+from src.common.utils import search_with_score
 
 
 class TestModels:
